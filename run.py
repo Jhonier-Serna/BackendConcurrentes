@@ -4,6 +4,7 @@ import asyncio
 
 async def main():
     try:
+        await connect_to_mongo()
         uvicorn.run(
             "app.main:app",
             reload=True

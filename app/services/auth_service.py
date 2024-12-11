@@ -7,6 +7,7 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from passlib.context import CryptContext
 from pydantic import EmailStr
+from bson import ObjectId
 
 from app.models.user import UserCreate, UserInDB, UserResponse
 from app.db.mongodb import get_async_database, connect_to_mongo
@@ -26,7 +27,7 @@ class AuthService:
         self.users_collection = None
 
     async def get_database(self):
-        if not self.db:
+        if self.db is None:
             await connect_to_mongo()
             self.db = get_async_database()
             self.users_collection = self.db["users"]
@@ -34,8 +35,9 @@ class AuthService:
 
     async def get_user_by_email(self, email: str) -> Optional[UserInDB]:
         db = await self.get_database()
-        user_dict = await self.users_collection.find_one({"email": email})
+        user_dict = await db.users.find_one({"email": email})
         if user_dict:
+            user_dict['id'] = str(user_dict.pop('_id'))
             return UserInDB(**user_dict)
         return None
 
