@@ -33,6 +33,7 @@ class ResearchFileCreate(BaseModel):
 
 
 class ResearchFileInDB(ResearchFileCreate):
+    id: Optional[str] = None
     status: FileStatus = FileStatus.PENDING
     total_genes_processed: Optional[int] = None
     processed_timestamp: Optional[float] = None

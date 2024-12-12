@@ -1,8 +1,16 @@
 import os
-from typing import List, Dict, Any
+from typing import List, Dict, Any, AsyncGenerator
 from fastapi import UploadFile
 import pandas as pd
 import time
+import logging
+from datetime import datetime
+import asyncio
+import aiofiles
+import mmap
+import multiprocessing
+from concurrent.futures import ProcessPoolExecutor
+
 
 from app.models.file import (
     ResearchFileCreate,
@@ -13,7 +21,9 @@ from app.models.file import (
 from app.models.gene import GeneCreate, WineType
 from app.db.mongodb import get_async_database
 
-
+# Configurar logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 class FileProcessorService:
     def __init__(self):
         self.db = get_async_database()
@@ -21,198 +31,203 @@ class FileProcessorService:
         self.genes_collection = self.db.genes
         self.processing_logs_collection = self.db.processing_logs
         self.upload_folder = os.getenv('UPLOAD_FOLDER', '/tmp/research_files')
+        self.max_workers = int(os.getenv('MAX_WORKERS', 4))
+        self.chunk_size = 10000
+        self.n_cores = multiprocessing.cpu_count()
+        self.buffer_size = 64 * 1024  # 64KB buffer
 
     async def process_file(
             self,
             file: UploadFile,
             file_metadata: ResearchFileCreate
     ) -> ResearchFileInDB:
-        """
-        Procesar archivo de investigación genética
-        """
-        # Generar nombre único para el archivo
-        unique_filename = f"{time.time()}_{file_metadata.filename}"
-        file_path = os.path.join(
-            self.upload_folder,
-            unique_filename
-        )
+        inicio_proceso = datetime.now()
+        logger.info(f"Iniciando procesamiento del archivo: {file_metadata.filename}")
 
-        # Crear estructura de directorios si no existe
+        unique_filename = f"{time.time()}_{file_metadata.filename}"
+        file_path = os.path.join(self.upload_folder, unique_filename)
+
         os.makedirs(os.path.dirname(file_path), exist_ok=True)
 
-        # Guardar archivo
-        with open(file_path, "wb") as buffer:
-            content = await file.read()
-            buffer.write(content)
-            await file.seek(0)  # Regresar al inicio del archivo para futuros usos
+        async with aiofiles.open(file_path, "wb") as buffer:
+            while content := await file.read(1024 * 1024):
+                await buffer.write(content)
 
-        # Crear registro de archivo
+        logger.info(f"Archivo guardado en: {file_path}")
+
         file_record = ResearchFileInDB(
             **file_metadata.model_dump(),
             status=FileStatus.PROCESSING
         )
 
-        # Insertar registro
         result = await self.files_collection.insert_one(
             file_record.model_dump(exclude_unset=True)
         )
-
-        # Asignar el id del documento insertado
         file_record.id = str(result.inserted_id)
 
         try:
-            # Procesar archivo
-            genes = await self._parse_gene_file(file_path, file_record)
+            logger.info("Iniciando parseo de genes...")
+            total_genes = 0
+            chunks = []
+            
+            # Procesar el generador de genes
+            async for genes_chunk in self._parse_gene_file(file_path, file_record):
+                total_genes += len(genes_chunk)
+                chunks.append(genes_chunk)
 
-            # Insertar genes en chunks para mejor rendimiento
-            chunk_size = 1000
-            for i in range(0, len(genes), chunk_size):
-                chunk = genes[i:i + chunk_size]
-                await self.genes_collection.insert_many(
-                    [gene.model_dump() for gene in chunk]
-                )
+            logger.info(f"Total de genes a procesar: {total_genes}")
 
-            # Actualizar estado
+            # Crear el executor fuera del context manager
+            executor = ProcessPoolExecutor(max_workers=self.n_cores)
+            try:
+                tasks = []
+                for i, chunk in enumerate(chunks):
+                    task = asyncio.create_task(
+                        self._process_chunk_parallel(chunk, i, len(chunks), file_record.id)
+                    )
+                    tasks.append(task)
+                
+                await asyncio.gather(*tasks)
+            finally:
+                executor.shutdown(wait=True)
+
+            tiempo_total = (datetime.now() - inicio_proceso).total_seconds()
+            genes_por_segundo = total_genes / tiempo_total
+
             await self.files_collection.update_one(
                 {"_id": result.inserted_id},
                 {"$set": {
                     "status": FileStatus.COMPLETED,
-                    "total_genes_processed": len(genes),
+                    "total_genes_processed": total_genes,
                     "processed_timestamp": time.time()
                 }}
             )
 
-            # Registrar log
             await self._log_processing(
                 file_record.id,
                 FileStatus.COMPLETED,
-                f"Procesados {len(genes)} genes"
+                f"Procesamiento completado. Total genes: {total_genes}. "
+                f"Tiempo total: {tiempo_total:.2f} segundos. "
+                f"Velocidad: {genes_por_segundo:.2f} genes/segundo"
             )
 
+            logger.info(f"Procesamiento completado exitosamente en {tiempo_total:.2f} segundos")
             return file_record
 
         except Exception as e:
-            # Manejar errores de procesamiento
+            logger.error(f"Error durante el procesamiento: {str(e)}")
             await self.files_collection.update_one(
                 {"_id": result.inserted_id},
                 {"$set": {"status": FileStatus.FAILED}}
             )
-
             await self._log_processing(
                 file_record.id,
                 FileStatus.FAILED,
-                str(e)
+                f"Error: {str(e)}"
             )
-
             raise
 
     async def _parse_gene_file(
             self,
             filepath: str,
             file_record: ResearchFileInDB
-    ) -> List[GeneCreate]:
-        """
-        Parsear archivo de genes con pandas
-        Soporta múltiples formatos (VCF, CSV, TSV)
-        """
-        # Detectar formato de archivo
+    ) -> AsyncGenerator[List[GeneCreate], None]:
         if filepath.endswith('.vcf'):
-            genes = self._parse_vcf(filepath, file_record)
-        elif filepath.endswith(('.csv', '.txt')):
-            genes = self._parse_csv(filepath, file_record)
+            async for genes in self._parse_vcf(filepath, file_record):
+                yield genes
         else:
             raise ValueError("Formato de archivo no soportado")
 
-        return genes
-
-    def _parse_vcf(
+    async def _parse_vcf(
             self,
             filepath: str,
             file_record: ResearchFileInDB
-    ) -> List[GeneCreate]:
-        """Parsear archivos VCF sin PyVCF"""
+    ) -> AsyncGenerator[List[GeneCreate], None]:
         genes = []
-        with open(filepath, 'r') as file:
-            header_info = {}
-            for line in file:
-                if line.startswith('#'):
-                    if line.startswith('#CHROM'):
-                        header_info['output_columns'] = line.strip().split('\t')[9:]
-                    continue
-                
-                parts = line.strip().split('\t')
-                info_dict = self._parse_info_field(parts[7])
-                format_fields = parts[8].split(':')
-                outputs = {}
-                
-                # Procesar columnas de output variables
-                for idx, sample in enumerate(parts[9:]):
-                    sample_name = header_info['output_columns'][idx]
-                    outputs[sample_name] = dict(zip(format_fields, sample.split(':')))
+        
+        with open(filepath, 'rb') as f:
+            # Usar mmap para lectura eficiente de archivos grandes
+            mm = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
+            
+            # Saltar el encabezado
+            line = mm.readline().decode('utf-8')
+            while line.startswith('#'):
+                line = mm.readline().decode('utf-8')
 
-                gene = GeneCreate(
-                    chromosome=parts[0],
-                    position=int(parts[1]),
-                    id=parts[2] if parts[2] != '.' else '',
-                    reference=parts[3],
-                    alternate=parts[4],
-                    quality=float(parts[5]) if parts[5] != '.' else 0.0,
-                    filter_status=parts[6],
-                    info=info_dict,
-                    format=parts[8],
-                    outputs=outputs,
-                    wine_type=file_record.wine_type,
-                    research_file_id=file_record.id
-                )
-                genes.append(gene)
-        return genes
+            while line:
+                if not line.strip():
+                    line = mm.readline().decode('utf-8')
+                    continue
+
+                fields = line.strip().split('\t')
+                if len(fields) < 8:  # Verificar campos mínimos requeridos
+                    line = mm.readline().decode('utf-8')
+                    continue
+
+                try:
+                    chrom, pos, id_, ref, alt, qual, filter_status, info = fields[:8]
+                    format_str = fields[8] if len(fields) > 8 else ''
+
+                    gene = GeneCreate(
+                        chromosome=chrom,
+                        position=int(pos),
+                        id=id_ if id_ != '.' else '',
+                        reference=ref,
+                        alternate=alt,
+                        quality=float(qual) if qual != '.' else 0.0,
+                        filter_status=filter_status if filter_status != '.' else 'PASS',
+                        info=self._parse_info_field(info),
+                        format=format_str,
+                        outputs={},
+                        wine_type=file_record.wine_type,
+                        research_file_id=file_record.id
+                    )
+                    genes.append(gene)
+
+                    if len(genes) >= self.chunk_size:
+                        yield genes
+                        genes = []
+
+                except (ValueError, IndexError) as e:
+                    logger.warning(f"Error parsing line: {str(e)}")
+                
+                line = mm.readline().decode('utf-8')
+
+            mm.close()
+
+        if genes:
+            yield genes
 
     def _parse_info_field(self, info_str: str) -> Dict[str, Any]:
-        """Parsear el campo INFO del VCF"""
-        if info_str == '.':
+        if info_str == '.' or not info_str:
             return {}
-        
+
         info_dict = {}
         for item in info_str.split(';'):
             if '=' in item:
                 key, value = item.split('=', 1)
+                # Convertir valores numéricos cuando sea posible
+                try:
+                    if ',' in value:
+                        value = [float(v) if '.' in v else int(v) 
+                                for v in value.split(',')]
+                    elif '.' in value:
+                        value = float(value)
+                    else:
+                        value = int(value)
+                except ValueError:
+                    pass
                 info_dict[key] = value
             else:
                 info_dict[item] = True
         return info_dict
-
-    def _parse_csv(
-            self,
-            filepath: str,
-            file_record: ResearchFileInDB
-    ) -> List[GeneCreate]:
-        """Parsear archivos CSV/TSV"""
-        df = pd.read_csv(filepath, sep='\t')
-
-        genes = []
-        for _, row in df.iterrows():
-            gene = GeneCreate(
-                chromosome=row['Chrom'],
-                position=row['Pos'],
-                id=row.get('Id', ''),
-                reference=row['Ref'],
-                alternate=row['Alt'],
-                quality=row.get('Qual', 0.0),
-                filter_status=row.get('Filter', ''),
-                wine_type=file_record.wine_type,
-                research_file_id=file_record.id
-            )
-            genes.append(gene)
-
-        return genes
-
+    
     async def _log_processing(
             self,
             file_id: str,
             status: FileStatus,
             message: str
     ):
-        """Registrar log de procesamiento"""
         log = FileProcessingLog(
             file_id=file_id,
             status=status,
@@ -221,9 +236,24 @@ class FileProcessorService:
         await self.processing_logs_collection.insert_one(log.dict())
 
     async def get_file_status(self, file_id: str) -> FileStatus:
-        """Consultar estado de procesamiento de archivo"""
         file = await self.files_collection.find_one({"_id": file_id})
         if not file:
             raise ValueError("Archivo no encontrado")
-
         return file.get('status', FileStatus.FAILED)
+
+    async def _process_chunk_parallel(self, chunk, chunk_index, total_chunks, file_id):
+        try:
+            # Inserción en lotes optimizada
+            await self.genes_collection.insert_many(
+                [gene.model_dump() for gene in chunk],
+                ordered=False
+            )
+            
+            await self._log_processing(
+                file_id,
+                FileStatus.PROCESSING,
+                f"Procesado chunk {chunk_index + 1}/{total_chunks} ({len(chunk)} genes)"
+            )
+        except Exception as e:
+            logger.error(f"Error en chunk {chunk_index + 1}: {str(e)}")
+            raise
