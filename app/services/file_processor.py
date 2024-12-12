@@ -11,7 +11,6 @@ import mmap
 import multiprocessing
 from concurrent.futures import ProcessPoolExecutor
 
-
 from app.models.file import (
     ResearchFileCreate,
     ResearchFileInDB,
@@ -24,6 +23,8 @@ from app.db.mongodb import get_async_database
 # Configurar logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
 class FileProcessorService:
     def __init__(self):
         self.db = get_async_database()
@@ -69,7 +70,7 @@ class FileProcessorService:
             logger.info("Iniciando parseo de genes...")
             total_genes = 0
             chunks = []
-            
+
             # Procesar el generador de genes
             async for genes_chunk in self._parse_gene_file(file_path, file_record):
                 total_genes += len(genes_chunk)
@@ -86,7 +87,7 @@ class FileProcessorService:
                         self._process_chunk_parallel(chunk, i, len(chunks), file_record.id)
                     )
                     tasks.append(task)
-                
+
                 await asyncio.gather(*tasks)
             finally:
                 executor.shutdown(wait=True)
@@ -138,65 +139,96 @@ class FileProcessorService:
         else:
             raise ValueError("Formato de archivo no soportado")
 
+
     async def _parse_vcf(
             self,
             filepath: str,
             file_record: ResearchFileInDB
     ) -> AsyncGenerator[List[GeneCreate], None]:
+        """
+        Método para parsear un archivo VCF y generar genes en lotes.
+
+        :param filepath: Ruta del archivo VCF.
+        :param file_record: Información del archivo de investigación.
+        :return: Generador asíncrono de lotes de genes.
+        """
         genes = []
-        
-        with open(filepath, 'rb') as f:
-            # Usar mmap para lectura eficiente de archivos grandes
-            mm = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
-            
-            # Saltar el encabezado
-            line = mm.readline().decode('utf-8')
-            while line.startswith('#'):
+
+        try:
+            with open(filepath, 'rb') as f:
+                mm = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
+
+                # Saltar líneas de metadatos
                 line = mm.readline().decode('utf-8')
-
-            while line:
-                if not line.strip():
+                while line.startswith('#'):
+                    if line.startswith('#CHROM'):
+                        # Extraer nombres de muestras desde la línea de encabezado
+                        sample_names = line.strip().split('\t')[9:]
                     line = mm.readline().decode('utf-8')
-                    continue
 
-                fields = line.strip().split('\t')
-                if len(fields) < 8:  # Verificar campos mínimos requeridos
+                while line:
+                    if not line.strip():
+                        line = mm.readline().decode('utf-8')
+                        continue
+
+                    fields = line.strip().split('\t')
+                    if len(fields) < 8:  # Verificar campos mínimos requeridos
+                        logger.warning(f"Línea con formato incorrecto: {line.strip()}")
+                        line = mm.readline().decode('utf-8')
+                        continue
+
+                    try:
+                        chrom, pos, id_, ref, alt, qual, filter_status, info = fields[:8]
+                        format_str = fields[8] if len(fields) > 8 else ''
+                        sample_data = fields[9:] if len(fields) > 9 else []
+
+                        # Parsear el campo INFO
+                        parsed_info = self._parse_info_field(info)
+
+                        # Procesar los outputs a partir de los datos de muestras
+                        outputs = {}
+                        if sample_names and sample_data:
+                            for name, data in zip(sample_names, sample_data):
+                                outputs[name] = data
+
+                        # Crear la instancia de GeneCreate
+                        gene = GeneCreate(
+                            chromosome=chrom,
+                            position=int(pos),
+                            id=id_ if id_ != '.' else '',
+                            reference=ref,
+                            alternate=alt,
+                            quality=float(qual) if qual != '.' else 0.0,
+                            filter_status=filter_status if filter_status != '.' else 'PASS',
+                            info=parsed_info,
+                            format=format_str,
+                            outputs=outputs,
+                            wine_type=file_record.wine_type,
+                            research_file_id=file_record.id
+                        )
+                        genes.append(gene)
+
+                        if len(genes) >= self.chunk_size:
+                            yield genes
+                            genes = []
+
+                    except (ValueError, IndexError) as e:
+                        logger.warning(f"Error procesando la línea: {line.strip()} - {str(e)}")
+
                     line = mm.readline().decode('utf-8')
-                    continue
 
-                try:
-                    chrom, pos, id_, ref, alt, qual, filter_status, info = fields[:8]
-                    format_str = fields[8] if len(fields) > 8 else ''
+                mm.close()
 
-                    gene = GeneCreate(
-                        chromosome=chrom,
-                        position=int(pos),
-                        id=id_ if id_ != '.' else '',
-                        reference=ref,
-                        alternate=alt,
-                        quality=float(qual) if qual != '.' else 0.0,
-                        filter_status=filter_status if filter_status != '.' else 'PASS',
-                        info=self._parse_info_field(info),
-                        format=format_str,
-                        outputs={},
-                        wine_type=file_record.wine_type,
-                        research_file_id=file_record.id
-                    )
-                    genes.append(gene)
+            if genes:
+                yield genes
 
-                    if len(genes) >= self.chunk_size:
-                        yield genes
-                        genes = []
+        except Exception as e:
+            logger.error(f"Error al leer el archivo VCF: {str(e)}")
 
-                except (ValueError, IndexError) as e:
-                    logger.warning(f"Error parsing line: {str(e)}")
-                
-                line = mm.readline().decode('utf-8')
+        finally:
+            if 'mm' in locals() and not mm.closed:
+                mm.close()
 
-            mm.close()
-
-        if genes:
-            yield genes
 
     def _parse_info_field(self, info_str: str) -> Dict[str, Any]:
         if info_str == '.' or not info_str:
@@ -209,8 +241,8 @@ class FileProcessorService:
                 # Convertir valores numéricos cuando sea posible
                 try:
                     if ',' in value:
-                        value = [float(v) if '.' in v else int(v) 
-                                for v in value.split(',')]
+                        value = [float(v) if '.' in v else int(v)
+                                 for v in value.split(',')]
                     elif '.' in value:
                         value = float(value)
                     else:
@@ -221,7 +253,7 @@ class FileProcessorService:
             else:
                 info_dict[item] = True
         return info_dict
-    
+
     async def _log_processing(
             self,
             file_id: str,
@@ -248,7 +280,7 @@ class FileProcessorService:
                 [gene.model_dump() for gene in chunk],
                 ordered=False
             )
-            
+
             await self._log_processing(
                 file_id,
                 FileStatus.PROCESSING,
