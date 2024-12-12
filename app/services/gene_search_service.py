@@ -1,5 +1,8 @@
 from app.models.gene import GeneSearchCriteria, GeneSearchResult, GeneInDB
 from app.db.mongodb import get_async_database
+from motor.motor_asyncio import AsyncIOMotorCursor
+from typing import List, Dict, Any
+import asyncio
 
 
 class GeneSearchService:
@@ -18,25 +21,43 @@ class GeneSearchService:
         """
         # Construir filtro de búsqueda
         query_filter = {}
-
+        
         if criteria.chromosome:
             query_filter['chromosome'] = criteria.chromosome
+        if criteria.filter_status:
+            query_filter['filter_status'] = criteria.filter_status
+        if criteria.format:
+            query_filter['format'] = criteria.format
+        if criteria.info_query:
+            for key, value in criteria.info_query.items():
+                query_filter[f'info.{key}'] = value
 
-        if criteria.wine_type:
-            query_filter['wine_type'] = criteria.wine_type
+        # Configurar ordenamiento
+        sort_options = {}
+        if criteria.sort_by:
+            sort_direction = 1 if criteria.sort_direction == 'asc' else -1
+            sort_options[criteria.sort_by] = sort_direction
 
-        # Contar total de resultados
-        total_results = await self.genes_collection.count_documents(query_filter)
-
-        # Realizar búsqueda con paginación
+        # Ejecutar búsqueda y conteo en paralelo
+        count_task = asyncio.create_task(
+            self.genes_collection.count_documents(query_filter)
+        )
+        
         skip = (page - 1) * per_page
-        cursor = self.genes_collection.find(query_filter) \
-            .skip(skip) \
-            .limit(per_page)
-
-        results = await cursor.to_list(length=per_page)
-
-        # Convertir resultados a modelo GeneInDB
+        cursor = self.genes_collection.find(query_filter)
+        
+        if sort_options:
+            cursor = cursor.sort(list(sort_options.items()))
+        
+        cursor = cursor.skip(skip).limit(per_page)
+        
+        # Ejecutar búsqueda paginada
+        results_task = asyncio.create_task(cursor.to_list(length=per_page))
+        
+        # Esperar resultados
+        total_results, results = await asyncio.gather(count_task, results_task)
+        
+        # Convertir resultados
         parsed_results = [GeneInDB(**result) for result in results]
 
         return GeneSearchResult(

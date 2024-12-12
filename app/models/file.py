@@ -2,39 +2,41 @@ from pydantic import BaseModel, Field
 from typing import Optional, Dict, Union
 from enum import Enum
 from datetime import datetime, timezone
+from app.models.gene import WineType
 
 
 class FileStatus(str, Enum):
-    PENDING = "pending"
-    PROCESSING = "processing"
-    COMPLETED = "completed"
-    FAILED = "failed"
+    PENDING = "PENDING"
+    PROCESSING = "PROCESSING"
+    COMPLETED = "COMPLETED"
+    FAILED = "FAILED"
 
 
 class ResearchFileBase(BaseModel):
     filename: str = Field(..., description="Nombre del archivo de investigación")
     original_filename: str = Field(..., description="Nombre original del archivo")
     file_size: int = Field(..., description="Tamaño del archivo en bytes")
-    wine_type: str = Field(..., description="Tipo de vino (chardonnay/cabernet)")
+    wine_type: WineType = Field(..., description="Tipo de vino (chardonnay/cabernet)")
 
     # Metadatos adicionales
     research_team: Optional[str] = None
     research_date: Optional[datetime] = datetime.now(timezone.utc)
 
 
-class ResearchFileCreate(ResearchFileBase):
-    uploaded_by_user_id: str
+class ResearchFileCreate(BaseModel):
+    filename: str
+    original_filename: str
+    file_size: int
+    wine_type: WineType
+    description: Optional[str] = ""
+    uploaded_by_user_id: Optional[str] = "system"  # Valor por defecto para pruebas
 
 
-class ResearchFileInDB(ResearchFileBase):
-    id: str
+class ResearchFileInDB(ResearchFileCreate):
+    id: Optional[str] = None
     status: FileStatus = FileStatus.PENDING
-    upload_timestamp: datetime = datetime.now(timezone.utc)
-    processed_timestamp: Optional[datetime] = None
     total_genes_processed: Optional[int] = None
-
-    # Información de procesamiento
-    processing_details: Optional[Dict[str, Union[str, int, float]]] = None
+    processed_timestamp: Optional[float] = None
 
 
 class FileProcessingLog(BaseModel):

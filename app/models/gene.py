@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import Optional, List, Dict, Union
+from typing import Optional, List, Dict, Union, Any
 from enum import Enum
 
 
@@ -10,8 +10,11 @@ class WineType(str, Enum):
 
 class GeneSearchCriteria(BaseModel):
     chromosome: Optional[str] = None
-    filter_criteria: Optional[str] = None
-    wine_type: Optional[WineType] = None
+    filter_status: Optional[str] = None
+    info_query: Optional[Dict[str, Any]] = None
+    format: Optional[str] = None
+    sort_by: Optional[str] = None
+    sort_direction: Optional[str] = Field(None, pattern="^(asc|desc)$")
 
 
 class GeneBase(BaseModel):
@@ -28,7 +31,17 @@ class GeneBase(BaseModel):
     format_info: Optional[Dict[str, Union[str, float, int]]] = None
 
 
-class GeneCreate(GeneBase):
+class GeneCreate(BaseModel):
+    chromosome: str
+    position: int
+    id: str
+    reference: str
+    alternate: str
+    quality: float
+    filter_status: str
+    info: Dict[str, Any]
+    format: str
+    outputs: Dict[str, Any]  # Almacenará las columnas variables
     wine_type: WineType
     research_file_id: str
 
