@@ -27,6 +27,6 @@ def create_access_token(data: dict, expires_delta: timedelta = None) -> str:
     Crea un token de acceso JWT.
     """
     to_encode = data.copy()
-    expire = datetime.utcnow() + (expires_delta or timedelta(minutes=15))
+    expire = datetime.now(datetime.timezone.utc) + (expires_delta or timedelta(minutes=15))
     to_encode.update({"exp": expire})
     return secrets.token_urlsafe(32)

@@ -25,7 +25,6 @@ class FileProcessorService:
         self.file_storage = FileStorageService()
         self.vcf_parser = VCFParserService()
         self.database = DatabaseService()
-        self.max_workers = int(os.getenv('MAX_WORKERS', 4))
         self.n_cores = multiprocessing.cpu_count()
 
     async def process_file(
@@ -96,6 +95,7 @@ class FileProcessorService:
             )
 
             logger.info(f"Processing completed successfully in {total_time:.2f} seconds")
+            os.remove(file_path)  # Remover el archivo temporal
             return file_record
 
         except Exception as e:

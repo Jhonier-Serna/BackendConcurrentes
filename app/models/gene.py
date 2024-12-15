@@ -9,9 +9,7 @@ class WineType(str, Enum):
 
 
 class GeneSearchCriteria(BaseModel):
-    chromosome: Optional[str] = None
-    filter_status: Optional[str] = None
-    info_query: Optional[Dict[str, Any]] = None
+    search: Optional[str] = None
     format: Optional[str] = None
     sort_by: Optional[str] = None
     sort_direction: Optional[str] = Field(None, pattern="^(asc|desc)$")
@@ -50,8 +48,6 @@ class GeneInDB(GeneBase):
     id: str
     wine_type: WineType
     research_file_id: str
-    created_at: str
-    last_updated: str
 
 
 class GeneBatchUpload(BaseModel):

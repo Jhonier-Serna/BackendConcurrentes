@@ -2,16 +2,13 @@ import logging
 import mmap
 from typing import List, Dict, Any, AsyncGenerator
 from app.models.gene import GeneCreate
-from app.models.file import (
-    ResearchFileInDB,
-)
 # Logging Configuration
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class VCFParserService:
     """Handles parsing of VCF files."""
-    def __init__(self, chunk_size=10000):
+    def __init__(self, chunk_size=5000):
         self.chunk_size = chunk_size
 
     def _parse_info_field(self, info_str: str) -> Dict[str, Any]:
@@ -42,7 +39,6 @@ class VCFParserService:
     async def parse_vcf(
             self,
             filepath: str,
-            file_record: ResearchFileInDB
     ) -> AsyncGenerator[List[GeneCreate], None]:
         """
         Asynchronous generator to parse VCF file and yield gene chunks.
@@ -103,8 +99,7 @@ class VCFParserService:
                             info=parsed_info,
                             format=format_str,
                             outputs=outputs,
-                            wine_type=file_record.wine_type,
-                            research_file_id=file_record.id
+
                         )
                         genes.append(gene)
 
