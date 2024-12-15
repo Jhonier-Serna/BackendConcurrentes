@@ -1,11 +1,14 @@
+import logging
 import tempfile
+import time
 from fastapi import (
     APIRouter,
     File,
     UploadFile,
     Depends,
     HTTPException,
-    Form
+    Form,
+    logger
 )
 from typing import Optional
 
@@ -16,7 +19,7 @@ from app.services.auth_service import get_current_user
 from app.services.file_processor import FileProcessorService
 
 router = APIRouter()
-
+logger = logging.getLogger(__name__)
 
 @router.get("/upload-status/{file_id}")
 async def check_file_upload_status(
@@ -54,15 +57,31 @@ async def upload_file(
             fileTemp.flush()
             fileTempPath = fileTemp.name
         
-        time = time.time()
+        startTime = time.time()
 
         try:
-            status = await FileProcessorService.process_file(fileTempPath,1)
-
-
-
-
-
+            logger.info(f"Starting parallel processing with {1} processors")
+            num_processors = 1  # Cambia este valor según sea necesario
+            file_processor = FileProcessorService()
+            status = await file_processor.process_file(fileTempPath)
+            
+            if status is None:
+                raise HTTPException(status_code=500, detail="El procesamiento del archivo devolvió None.")
+            
+            end_time = time.time()
+            processing_time = end_time - startTime
+            
+            result = {
+                "success": True,
+                "processing_time": processing_time,
+                "total_lines": status.totalLines,
+                "inserted_documents": status.insertedDocuments,
+                "throughput": status.get_throughput(),
+                "validation": status.validate_processing()
+            }
+            
+            logger.info(f"Processing results: {result}")
+            return result
         except Exception as e:
             raise HTTPException(
                 status_code=500,

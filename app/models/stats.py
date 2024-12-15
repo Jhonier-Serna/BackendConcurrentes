@@ -3,14 +3,14 @@ from typing import Dict, List, Tuple
 
 class PStats:
     def __init__(self):
-        self.startTime = None
+        self.start_time = None
         self.endTime = None
         self.totalLines = 0
         self.processedLines = 0
         self.insertedDocuments = 0
 
     def begin(self):
-        self.startTime = time.time()
+        self.start_time = time.time()
 
     def end(self):
         self.endTime = time.time()

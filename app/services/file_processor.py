@@ -54,8 +54,7 @@ class FileProcessorService:
 
     async def process_file(
             self,
-            file_path: str,
-            num_processes: int,
+            file_path: str
     ) -> PStats:
         """
         Main method to process an uploaded file.
@@ -64,6 +63,7 @@ class FileProcessorService:
         :param file_metadata: File metadata
         :return: Processed file record
         """
+        num_processes: int = 1
         stats = PStats()
         stats.begin()
         numProcess = num_processes or nProcess
@@ -72,7 +72,8 @@ class FileProcessorService:
 
         if not os.path.exists(file_path):
             raise FileNotFoundError(f"File not found: {file_path}")
-        
+        print(num_processes,stats,)
+
         fileSize = os.path.getsize(file_path)
         logger.info(f"File size: {fileSize / (1024*1024):.2f} MB")
         tLines = 0
@@ -81,6 +82,7 @@ class FileProcessorService:
                 if not line.startswith(b'#'):
                     tLines += 1
         stats.totalLines = tLines
+        print(tLines)
         logger.info(f"Total non-header lines: {tLines}")
         chunkPos = []
         lChunk = tLines // (4 * numProcess)
