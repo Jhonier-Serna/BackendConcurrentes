@@ -1,8 +1,7 @@
 import re
 import asyncio
-from typing import List
 from fastapi import HTTPException
-from app.models.gene import GeneSearchCriteria, GeneSearchResult, GeneInDB, GeneCreate
+from app.models.gene import GeneSearchResult, GeneCreate
 from app.db.mongodb import get_async_database
 
 
@@ -53,14 +52,15 @@ class GeneSearchService:
             tasks.append(
                 self.parallel_search(query, skip + i * partition_size, partition_size)
             )
-
         try:
             async with asyncio.timeout(timeout):
                 results = await asyncio.gather(*tasks)
                 flattened_results = [item for sublist in results for item in sublist]
+                # total_results = await self.genes_collection.count_documents(query)
+                total_results = len(flattened_results)
 
                 return GeneSearchResult(
-                    total_results=len(flattened_results),
+                    total_results=total_results,
                     page=page,
                     per_page=per_page,
                     results=[
