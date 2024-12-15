@@ -1,6 +1,6 @@
 import logging
 import mmap
-from typing import List, Dict, Any, AsyncGenerator
+from typing import List, AsyncGenerator
 from app.models.gene import GeneCreate
 # Logging Configuration
 logging.basicConfig(level=logging.INFO)
@@ -8,33 +8,8 @@ logger = logging.getLogger(__name__)
 
 class VCFParserService:
     """Handles parsing of VCF files."""
-    def __init__(self, chunk_size=5000):
+    def __init__(self, chunk_size=1000):
         self.chunk_size = chunk_size
-
-    def _parse_info_field(self, info_str: str) -> Dict[str, Any]:
-        """Parse the INFO field of a VCF file."""
-        if info_str == '.' or not info_str:
-            return {}
-
-        info_dict = {}
-        for item in info_str.split(';'):
-            if '=' in item:
-                key, value = item.split('=', 1)
-                # Convert numeric values when possible
-                try:
-                    if ',' in value:
-                        value = [float(v) if '.' in v else int(v)
-                                 for v in value.split(',')]
-                    elif '.' in value:
-                        value = float(value)
-                    else:
-                        value = int(value)
-                except ValueError:
-                    pass
-                info_dict[key] = value
-            else:
-                info_dict[item] = True
-        return info_dict
 
     async def parse_vcf(
             self,
@@ -78,14 +53,6 @@ class VCFParserService:
                         format_str = fields[8] if len(fields) > 8 else ''
                         sample_data = fields[9:] if len(fields) > 9 else []
 
-                        # Parse INFO field
-                        parsed_info = self._parse_info_field(info)
-
-                        # Process sample outputs
-                        outputs = {}
-                        if sample_names and sample_data:
-                            for name, data in zip(sample_names, sample_data):
-                                outputs[name] = data
 
                         # Create GeneCreate instance
                         gene = GeneCreate(
@@ -96,9 +63,9 @@ class VCFParserService:
                             alternate=alt,
                             quality=float(qual) if qual != '.' else 0.0,
                             filter_status=filter_status if filter_status != '.' else 'PASS',
-                            info=parsed_info,
+                            info=info if info != '.' else '',
                             format=format_str,
-                            outputs=outputs,
+                            outputs=dict(zip(sample_names, sample_data)),
 
                         )
                         genes.append(gene)
@@ -112,10 +79,8 @@ class VCFParserService:
 
                     line = mm.readline().decode('utf-8')
 
-                mm.close()
-
-            if genes:
-                yield genes
+                if genes:
+                    yield genes
 
         except Exception as e:
             logger.error(f"Error reading VCF file: {str(e)}")

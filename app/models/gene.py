@@ -37,16 +37,13 @@ class GeneCreate(BaseModel):
     alternate: str
     quality: float
     filter_status: str
-    info: Dict[str, Any]
+    info: str
     format: str
     outputs: Dict[str, Any]  # Almacenará las columnas variables
-    wine_type: WineType
-    research_file_id: str
 
 
 class GeneInDB(GeneBase):
     id: str
-    wine_type: WineType
     research_file_id: str
 
 
