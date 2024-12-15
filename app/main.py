@@ -1,10 +1,8 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.db.mongodb import connect_to_mongo
 from app.routes import user, gene_search, file_upload
 
-connect_to_mongo()
 app = FastAPI(
     title="Gene Search Backend for Vineyard Research",
     description="Backend for searching and analyzing gene data from grape varieties",

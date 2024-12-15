@@ -56,4 +56,4 @@ class GeneSearchResult(BaseModel):
     total_results: int
     page: int
     per_page: int
-    results: List[GeneInDB]
+    results: List[GeneCreate]

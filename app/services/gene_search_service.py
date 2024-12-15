@@ -1,7 +1,9 @@
-from app.models.gene import GeneSearchCriteria, GeneSearchResult, GeneInDB
-from app.db.mongodb import get_async_database
+import re
 import asyncio
-from concurrent.futures import ThreadPoolExecutor
+from typing import List
+from fastapi import HTTPException
+from app.models.gene import GeneSearchCriteria, GeneSearchResult, GeneInDB, GeneCreate
+from app.db.mongodb import get_async_database
 
 
 class GeneSearchService:
@@ -9,48 +11,104 @@ class GeneSearchService:
         self.db = get_async_database()
         self.genes_collection = self.db.genes
 
-    async def fetch_results(self, query_filter, page, per_page):
-        cursor = self.genes_collection.find(query_filter).skip((page - 1) * per_page).limit(per_page)
-        return await cursor.to_list(length=per_page)
-
     async def search(
         self,
         criteria: GeneSearchCriteria,
         page: int = 1,
-        per_page: int = 50
+        per_page: int = 10,
+        timeout: int = 30,
     ) -> GeneSearchResult:
         """
-        Búsqueda avanzada de genes con múltiples criterios.
+        Realiza una búsqueda parcial optimizada utilizando índices y expresiones regulares.
         """
-
-        # Construir el filtro de búsqueda para MongoDB
-        search_term = criteria.search 
-        query_filter = {
-            '$or': [
-                {'chromosome': {'$regex': search_term, '$options': 'i'}},
-                {'filter_status': {'$regex': search_term, '$options': 'i'}},
-                {'info': {'$regex': search_term, '$options': 'i'}},
-                {'format': {'$regex': search_term, '$options': 'i'}}
+        # Preparar el término de búsqueda
+        search_term = re.escape(
+            criteria.search.strip()
+        )  # Escapar caracteres especiales
+        query = {
+            "$or": [
+                {"chromosome": {"$regex": search_term, "$options": "i"}},
+                {"filter_status": {"$regex": search_term, "$options": "i"}},
+                {"info": {"$regex": search_term, "$options": "i"}},
+                {"format": {"$regex": search_term, "$options": "i"}},
             ]
         }
 
-        # Contar el total de resultados antes de crear las tareas
-        total_results = await self.genes_collection.count_documents(query_filter)
+        # Paginación
+        skip = (page - 1) * per_page
 
-        # Crear un grupo de hilos para paralelizar la consulta
-        loop = asyncio.get_event_loop()
-        with ThreadPoolExecutor() as executor:
-            tasks = [loop.run_in_executor(executor, self.fetch_results, query_filter, p, per_page) for p in range(1, (total_results // per_page) + 1)]
-            results = await asyncio.gather(*tasks)
+        try:
+            # Contar resultados totales
+            total_results = await self.genes_collection.count_documents(query)
 
-        # Convertir los resultados a modelos de datos
-        parsed_results = [
-            GeneInDB(**result) for sublist in results for result in sublist
-        ]
+            if total_results == 0:
+                return GeneSearchResult(
+                    total_results=0, page=page, per_page=per_page, results=[]
+                )
 
-        return GeneSearchResult(
-            total_results=total_results,
-            page=page,
-            per_page=per_page,
-            results=parsed_results
-        )
+            # Ejecutar búsqueda con un pipeline optimizado
+            async with asyncio.timeout(timeout):
+                pipeline = [
+                    {"$match": query},
+                    {"$sort": {"_id": 1}},
+                    {"$skip": skip},
+                    {"$limit": per_page},
+                    {
+                        "$project": {
+                            "_id": 0,
+                            "chromosome": 1,
+                            "position": 1,
+                            "id": 1,
+                            "reference": 1,
+                            "alternate": 1,
+                            "quality": 1,
+                            "filter_status": 1,
+                            "info": 1,
+                            "format": 1,
+                            "outputs": 1,
+                        }
+                    },
+                ]
+
+                # Ejecutar la agregación
+                cursor = self.genes_collection.aggregate(
+                    pipeline,
+                    allowDiskUse=True,
+                    batchSize=2000,
+                    maxTimeMS=timeout * 1000,
+                )
+
+                documents = await cursor.to_list(length=per_page)
+
+                results = [
+                    GeneCreate(
+                        chromosome=doc["chromosome"],
+                        position=doc.get("position", 0),
+                        id=doc.get("id", ""),
+                        reference=doc.get("reference", ""),
+                        alternate=doc.get("alternate", ""),
+                        quality=doc.get("quality", 0.0),
+                        filter_status=doc["filter_status"],
+                        info=doc.get("info", ""),
+                        format=doc.get("format", ""),
+                        outputs=doc.get("outputs", {}),
+                    )
+                    for doc in documents
+                ]
+
+                return GeneSearchResult(
+                    total_results=total_results,
+                    page=page,
+                    per_page=per_page,
+                    results=results,
+                )
+
+        except asyncio.TimeoutError:
+            raise HTTPException(
+                status_code=408,
+                detail="La búsqueda tomó demasiado tiempo. Por favor, refine su término de búsqueda.",
+            )
+        except Exception as e:
+            raise HTTPException(
+                status_code=500, detail=f"Error en la búsqueda: {str(e)}"
+            )

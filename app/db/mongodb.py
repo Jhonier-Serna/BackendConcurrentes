@@ -19,11 +19,10 @@ async def connect_to_mongo():
     # Configuración para conexión asíncrona
     AsyncMongoDB.client = AsyncIOMotorClient(settings.MONGODB_URL)
     AsyncMongoDB.db = AsyncMongoDB.client[settings.MONGODB_DATABASE]
-
-    # Configuración para conexión síncrona
-    SyncMongoDB.client = MongoClient(settings.MONGODB_URL)
-    SyncMongoDB.db = SyncMongoDB.client[settings.MONGODB_DATABASE]
-
+    AsyncMongoDB.db.max_pool_size = 15000
+    AsyncMongoDB.db.max_idle_time_ms = 3000
+    AsyncMongoDB.db.server_selection_timeout_ms = 3000
+    AsyncMongoDB.db.retry_writes = True
 
 async def close_mongo_connection():
     AsyncMongoDB.client.close()
@@ -33,6 +32,3 @@ async def close_mongo_connection():
 def get_async_database():
     return AsyncMongoDB.db
 
-
-def get_sync_database():
-    return SyncMongoDB.db
