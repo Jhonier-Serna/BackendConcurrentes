@@ -1,3 +1,4 @@
+import tempfile
 from fastapi import (
     APIRouter,
     File,
@@ -40,33 +41,37 @@ async def check_file_upload_status(
 @router.post("/upload")
 async def upload_file(
     file: UploadFile = File(...),
-    wine_type: WineType = Form(...),
-    description: Optional[str] = Form(None)
 ):
     """
     Endpoint para subir archivos vía CURL
     """
-    # Obtener el tamaño del archivo
-    file_content = await file.read()
-    file_size = len(file_content)
-    await file.seek(0)  # Regresar al inicio del archivo
-    
-    file_metadata = ResearchFileCreate(
-        filename=file.filename,
-        original_filename=file.filename,
-        file_size=file_size,
-        wine_type=wine_type,
-        description=description or "",
-        uploaded_by_user_id="system"  # En un sistema real, esto vendría del usuario autenticado
-    )
-    
-    processor = FileProcessorService()
-    result = await processor.process_file(file, file_metadata)
-    
-    return {
-        "message": "Archivo subido exitosamente",
-        "file_id": str(result.id),
-        "status": result.status,
-        "file_size": file_size,
-        "filename": file.filename
-    }
+    try:
+        fileTemp = None
+        data = await file.read()
+
+        with tempfile.NamedTemporaryFile(delete=False) as fileTemp:
+            fileTemp.write(data)
+            fileTemp.flush()
+            fileTempPath = fileTemp.name
+        
+        time = time.time()
+
+        try:
+            status = await FileProcessorService.process_file(fileTempPath,1)
+
+
+
+
+
+        except Exception as e:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Error al procesar el archivo: {str(e)}"
+            )
+
+        return {"message": "Archivo subido exitosamente"}
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error al procesar el archivo: {str(e)}"
+        )
