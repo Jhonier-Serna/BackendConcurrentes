@@ -45,13 +45,20 @@ async def upload_file(
 @router.get("/uploaded-files")
 async def get_uploaded_files():
     """
-    Endpoint para consultar los archivos subidos y su información.
+    Endpoint para consultar los nombres de los archivos en la colección 'upload_files'.
     """
     database = get_async_database()
-    uploaded_files_collection = database.uploaded_files
+    upload_files_collection = database.uploaded_files
 
     try:
-        uploaded_files = await uploaded_files_collection.find().to_list(length=100)  # Limitar a 100 archivos
-        return {"uploaded_files": uploaded_files}
+        uploaded_files = await upload_files_collection.find().to_list(
+            length=100
+        )  # Limitar a 100 archivos
+        file_names = [
+            file["collection_name"] for file in uploaded_files
+        ]  # Obtener solo los nombres de los archivos
+        return file_names
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error al consultar archivos subidos: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Error al consultar archivos subidos: {str(e)}"
+        )
