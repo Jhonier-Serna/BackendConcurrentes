@@ -3,8 +3,10 @@ from fastapi import (
     File,
     UploadFile,
     HTTPException,
+    Depends,
 )
 from app.services.file_processor import FileProcessorService
+from app.db.mongodb import get_async_database
 
 router = APIRouter()
 
@@ -38,3 +40,18 @@ async def upload_file(
         "file_size": file_size,
         "filename": file.filename
     }
+
+
+@router.get("/uploaded-files")
+async def get_uploaded_files():
+    """
+    Endpoint para consultar los archivos subidos y su información.
+    """
+    database = get_async_database()
+    uploaded_files_collection = database.uploaded_files
+
+    try:
+        uploaded_files = await uploaded_files_collection.find().to_list(length=100)  # Limitar a 100 archivos
+        return {"uploaded_files": uploaded_files}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error al consultar archivos subidos: {str(e)}")

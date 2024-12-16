@@ -59,18 +59,34 @@ class FileProcessorService:
         # Save the file
         file_path = await self.file_storage.save_uploaded_file(file)
 
+        # Crear una colección para el archivo subido
+        collection_name = f"genes_{int(datetime.now().timestamp())}"
+        genes_collection = self.database[collection_name]
+
+        # Verificar y crear la colección de archivos subidos si no existe
+        if "uploaded_files" not in await self.database.list_collection_names():
+            await self.database.create_collection("uploaded_files")
+
         try:
             logger.info("Starting gene parsing...")
             total_genes = 0
 
-            # Parse genes y guarda en la base de datos simultáneamente
+            # Parse genes y guarda en la nueva colección
             async for genes_chunk in self.vcf_parser.parse_vcf(file_path):
                 total_genes += len(genes_chunk)
                 await self._process_chunk_parallel(
-                    genes_chunk
-                )  # Procesar cada chunk inmediatamente
+                    genes_chunk, genes_collection
+                )  # Procesar cada chunk en la nueva colección
 
-            logger.info(f"Total genes processed: {total_genes}")
+            # Guardar información del archivo en la colección de archivos subidos
+            await self.database.uploaded_files.insert_one(
+                {
+                    "file_path": file_path,
+                    "collection_name": collection_name,
+                    "total_genes": total_genes,
+                    "upload_time": datetime.now(),
+                }
+            )
 
             # Calculate processing time and speed
             total_time = (datetime.now() - start_time).total_seconds() / 60
@@ -86,14 +102,15 @@ class FileProcessorService:
             logger.error(f"Processing error: {str(e)}")
             return {"status": "error", "message": str(e)}
 
-    async def _process_chunk_parallel(self, chunk):
+    async def _process_chunk_parallel(self, chunk, genes_collection):
         """
         Process a single chunk of genes in parallel.
 
         :param chunk: Chunk of genes to process
+        :param genes_collection: Collection to insert genes into
         """
         try:
-            await self.genes_collection.insert_many(
+            await genes_collection.insert_many(
                 [gene.model_dump() for gene in chunk], ordered=False
             )
         except Exception as e:

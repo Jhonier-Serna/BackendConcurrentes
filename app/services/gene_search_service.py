@@ -8,9 +8,8 @@ from app.db.mongodb import get_async_database
 class GeneSearchService:
     def __init__(self):
         self.db = get_async_database()
-        self.genes_collection = self.db.genes
 
-    async def parallel_search(self, query, skip, limit):
+    async def parallel_search(self, query, skip, limit, collection_name: str):
         pipeline = [
             {"$match": query},
             {"$sort": {"_id": 1}},
@@ -32,10 +31,12 @@ class GeneSearchService:
                 }
             },
         ]
-        cursor = self.genes_collection.aggregate(pipeline)
+        cursor = self.db[collection_name].aggregate(pipeline)
         return await cursor.to_list(length=limit)
 
-    async def search(self, criteria, page=1, per_page=10, timeout=30):
+    async def search(
+        self, criteria, page=1, per_page=10, timeout=30, collection_name: str = "genes"
+    ):
         search_term = re.escape(criteria.search.strip())
         query = {
             "$or": [
@@ -50,13 +51,14 @@ class GeneSearchService:
         partition_size = per_page // 4  # Divide en 4 subconsultas paralelas
         for i in range(4):
             tasks.append(
-                self.parallel_search(query, skip + i * partition_size, partition_size)
+                self.parallel_search(
+                    query, skip + i * partition_size, partition_size, collection_name
+                )
             )
         try:
             async with asyncio.timeout(timeout):
                 results = await asyncio.gather(*tasks)
                 flattened_results = [item for sublist in results for item in sublist]
-                # total_results = await self.genes_collection.count_documents(query)
                 total_results = len(flattened_results)
 
                 return GeneSearchResult(

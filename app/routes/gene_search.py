@@ -14,12 +14,18 @@ from app.services.auth_service import get_current_user
 
 router = APIRouter()
 
+
 @router.get("/", response_model=GeneSearchResult)
 async def search_genes(
-        current_user: UserResponse = Depends(get_current_user),  # Añadir dependencia de autenticación
-        search: Optional[str] = Query(None, description="Filtro"),
-        page: int = Query(1, ge=1, description="Número de página"),
-        per_page: int = Query(25, ge=1, le=200, description="Resultados por página"),
+    current_user: UserResponse = Depends(
+        get_current_user
+    ),  # Añadir dependencia de autenticación
+    search: Optional[str] = Query(None, description="Filtro"),
+    page: int = Query(1, ge=1, description="Número de página"),
+    per_page: int = Query(25, ge=1, le=200, description="Resultados por página"),
+    collection_name: str = Query(
+        ..., description="Nombre de la colección donde buscar"
+    ),
 ):
     """
     Búsqueda avanzada de genes con múltiples criterios
@@ -29,7 +35,9 @@ async def search_genes(
     """
     # Validar que el término de búsqueda no esté vacío si se proporciona
     if search is not None and search.strip() == "":
-        raise HTTPException(status_code=400, detail="El término de búsqueda no puede estar vacío")
+        raise HTTPException(
+            status_code=400, detail="El término de búsqueda no puede estar vacío"
+        )
 
     search_service = GeneSearchService()
 
@@ -41,7 +49,8 @@ async def search_genes(
         results = await search_service.search(
             criteria=search_criteria,
             page=page,
-            per_page=per_page
+            per_page=per_page,
+            collection_name=collection_name,
         )
         return results
     except Exception as e:
