@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
+from pydantic import BaseModel
 
 from app.models.user import (
     UserCreate,
@@ -96,3 +97,50 @@ async def read_users_me(current_user: UserResponse = Depends(get_current_user)):
     Obtener información del usuario actual
     """
     return current_user
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+@router.post("/simple-login")
+async def simple_login(request: LoginRequest):
+    username = request.username
+    password = request.password
+    """
+    Inicio de sesión simple con solo nombre de usuario y contraseña
+    """
+    user = await authenticate_user(username, password)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Credenciales incorrectas",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    access_token = create_access_token(data={"sub": user.email})
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+    }
+
+class RegisterRequest(BaseModel):
+    username: str
+    password: str
+
+
+@router.post("/simple-register")
+async def simple_register(request: RegisterRequest):
+    username = request.username
+    password = request.password
+    """
+    Registro simple de usuario con solo nombre de usuario y contraseña
+    """
+    user_data = UserCreate(email=username, password=password)  # Suponiendo que UserCreate tiene un campo para la contraseña
+    try:
+        new_user = await create_user(user_data)
+        return new_user
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
