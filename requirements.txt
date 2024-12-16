@@ -15,3 +15,5 @@ PyJWT
 pydantic-settings
 bcrypt
 aiofiles
+pika
+sendgrid

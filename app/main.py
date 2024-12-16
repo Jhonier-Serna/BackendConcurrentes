@@ -6,7 +6,7 @@ from app.routes import user, gene_search, file_upload
 app = FastAPI(
     title="Gene Search Backend for Vineyard Research",
     description="Backend for searching and analyzing gene data from grape varieties",
-    version="0.1.0"
+    version="0.1.0",
 )
 
 # Configuración de CORS
@@ -23,9 +23,7 @@ app.include_router(user.router, prefix="/users", tags=["users"])
 app.include_router(gene_search.router, prefix="/search", tags=["gene-search"])
 app.include_router(file_upload.router, prefix="/upload", tags=["file-upload"])
 
+
 @app.get("/")
 async def root():
-    return {
-        "message": "Welcome to Gene Search Backend",
-        "status": "operational"
-    }
+    return {"message": "Welcome to Gene Search Backend", "status": "operational"}

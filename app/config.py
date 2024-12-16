@@ -25,12 +25,9 @@ class Settings(BaseSettings):
     UPLOAD_FOLDER: str
     MAX_FILE_SIZE: int = 5368709120
 
-    # Configuración de CUDA
-    CUDA_LIBRARY_PATH: str
-
-    # Configuración de caché (Redis)
-    REDIS_URL: str
-    CACHE_TIMEOUT: int = 300  # 5 minutos por defecto
+    # Configuración de SendGrid
+    SENDGRID: str
+    SENDGRID_EMAIL: str
 
     class Config:
         env_file = ".env"
