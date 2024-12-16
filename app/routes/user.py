@@ -19,13 +19,15 @@ router = APIRouter()
 
 
 @router.post("/login")
-async def login(form_data: OAuth2PasswordRequestForm = Depends()):
+async def login(request: LoginRequest):
     """
     Inicio de sesión de usuario
     - Autentica credenciales
     - Genera token de acceso
     """
-    user = await authenticate_user(form_data.username, form_data.password)
+    username = request.username
+    password = request.password
+    user = await authenticate_user(username, password)
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -40,7 +42,7 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()):
     }
 
 
-@router.post("/simple-register")
+@router.post("/register")
 async def simple_register(request: LoginRequest):
     username = request.username
     password = request.password

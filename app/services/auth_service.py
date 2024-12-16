@@ -86,9 +86,6 @@ class AuthService:
         consumer_thread = threading.Thread(target=start_consumer, daemon=True)
         consumer_thread.start()
 
-        # Publicar un mensaje en RabbitMQ para enviar la clave de seguridad
-        self.publish_security_key_email(user.email, security_key)
-
         return UserResponse(**user_dict)
 
     def publish_security_key_email(self, email: str, security_key: str):
@@ -114,6 +111,25 @@ class AuthService:
             return None
         if not self.verify_password(password, user.hashed_password):
             return None
+
+        # Generar nueva clave de seguridad al iniciar sesión
+        new_security_key = self.generate_security_key()
+        expires_at = datetime.now(tz=timezone.utc) + timedelta(hours=24)
+
+        # Actualizar usuario con la nueva clave
+        await self.users_collection.update_one(
+            {"email": email},
+            {
+                "$set": {
+                    "security_key": new_security_key,
+                    "security_key_expires": expires_at,
+                }
+            },
+        )
+
+        # Publicar un mensaje en RabbitMQ para enviar la clave de seguridad
+        self.publish_security_key_email(email, new_security_key)
+
         return user
 
     def create_access_token(
@@ -172,13 +188,26 @@ class AuthService:
         if user.security_key != security_key:
             raise ValueError("Clave de seguridad incorrecta")
 
+        # Asegúrate de que user.security_key_expires tenga zona horaria
+        if user.security_key_expires.tzinfo is None:
+            user.security_key_expires = user.security_key_expires.replace(
+                tzinfo=timezone.utc
+            )
+
+        # Comparar con la fecha y hora actual
         if user.security_key_expires < datetime.now(tz=timezone.utc):
             raise ValueError("Clave de seguridad expirada")
 
         # Limpiar la clave de seguridad después de su uso
         await self.users_collection.update_one(
             {"email": email},
-            {"$set": {"security_key": None, "security_key_expires": None}},
+            {
+                "$set": {
+                    "security_key": None,
+                    "security_key_expires": None,
+                    "last_login": datetime.now(tz=timezone.utc),
+                }
+            },
         )
 
         return True
