@@ -14,24 +14,26 @@ class UserBase(BaseModel):
 class UserCreate(UserBase):
     password: str
 
-    @field_validator('password')
+    @field_validator("password")
     def validate_password(cls, password):
         # Validaciones de contraseña
         if len(password) < 8:
             raise ValueError("La contraseña debe tener al menos 8 caracteres")
 
         # Verificar complejidad
-        if not re.search(r'[A-Z]', password):
+        if not re.search(r"[A-Z]", password):
             raise ValueError("La contraseña debe contener al menos una mayúscula")
 
-        if not re.search(r'[a-z]', password):
+        if not re.search(r"[a-z]", password):
             raise ValueError("La contraseña debe contener al menos una minúscula")
 
-        if not re.search(r'\d', password):
+        if not re.search(r"\d", password):
             raise ValueError("La contraseña debe contener al menos un número")
 
         if not re.search(r'[!@#$%^&*(),.?":{}|<>]', password):
-            raise ValueError("La contraseña debe contener al menos un carácter especial")
+            raise ValueError(
+                "La contraseña debe contener al menos un carácter especial"
+            )
 
         return password
 
@@ -50,8 +52,8 @@ class UserResponse(UserBase):
         from_attributes = True
 
 
-class UserLogin(BaseModel):
-    email: EmailStr
+class LoginRequest(BaseModel):
+    username: str
     password: str
 
 
