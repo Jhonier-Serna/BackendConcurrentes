@@ -87,7 +87,7 @@ class AuthService:
         consumer_thread.start()
 
         # Publicar un mensaje en RabbitMQ para enviar la clave de seguridad
-        self.publish_security_key_email(user.email, security_key)
+        #self.publish_security_key_email(user.email, security_key)
 
         return UserResponse(**user_dict)
 
