@@ -54,4 +54,4 @@ async def search_genes(
         )
         return results
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error en la búsqueda: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"No se encontraron coincidencias: {str(e)}")

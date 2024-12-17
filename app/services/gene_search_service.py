@@ -35,7 +35,7 @@ class GeneSearchService:
         return await cursor.to_list(length=limit)
 
     async def search(
-        self, criteria, page=1, per_page=10, timeout=30, collection_name: str = "genes"
+        self, criteria, page=1, per_page=10, timeout=10, collection_name: str = "genes"
     ):
         search_term = re.escape(criteria.search.strip())
         query = {
@@ -48,8 +48,8 @@ class GeneSearchService:
         }
         skip = (page - 1) * per_page
         tasks = []
-        partition_size = per_page // 4  # Divide en 4 subconsultas paralelas
-        for i in range(4):
+        partition_size = per_page // 12  # Divide en 4 subconsultas paralelas
+        for i in range(12):
             tasks.append(
                 self.parallel_search(
                     query, skip + i * partition_size, partition_size, collection_name
@@ -85,5 +85,5 @@ class GeneSearchService:
         except asyncio.TimeoutError:
             raise HTTPException(
                 status_code=408,
-                detail="La búsqueda tomó demasiado tiempo.",
+                detail="No se encontró ninguna coincidencia.",
             )
