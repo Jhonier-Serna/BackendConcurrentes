@@ -1,0 +1,23 @@
+# Gene Search Backend for Vineyard Research
+
+Este proyecto es un backend para la búsqueda y análisis de datos genéticos de variedades de uva. Utiliza FastAPI y MongoDB para proporcionar una API RESTful.
+
+## Dependencias
+
+Para ejecutar este proyecto, asegúrate de tener instaladas las siguientes dependencias:
+
+- **Python 3.8 o superior**
+- **FastAPI**: Para crear la API.
+- **Pydantic**: Para la validación de datos.
+- **Motor**: Cliente asíncrono para MongoDB.
+- **Pika**: Para la comunicación con RabbitMQ.
+- **SendGrid**: Para el envío de correos electrónicos.
+- **Passlib**: Para el manejo de contraseñas.
+- **aiofiles**: Para la gestión de archivos asíncrona.
+
+Puedes instalar las dependencias utilizando pip install -r requirements.txt
+
+## Ejecución
+
+Para ejecutar el proyecto, utiliza el siguiente comando:
+python run.py
