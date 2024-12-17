@@ -21,23 +21,22 @@ class FileProcessorService:
         self.vcf_parser = VCFParserService()
         self.n_cores = multiprocessing.cpu_count()
         self.database = get_async_database()
-        self.genes_collection = self.database.genes
 
-    async def _create_indexes(self):
+    async def _create_indexes(self, genes_collection):
         """
         Crea índices optimizados para búsquedas parciales con expresiones regulares.
         """
         try:
-            await self.genes_collection.create_index(
+            await genes_collection.create_index(
                 [("chromosome", 1)], name="chromosome_index", background=True
             )
-            await self.genes_collection.create_index(
+            await genes_collection.create_index(
                 [("filter_status", 1)], name="filter_status_index", background=True
             )
-            await self.genes_collection.create_index(
+            await genes_collection.create_index(
                 [("info", 1)], name="info_index", background=True
             )
-            await self.genes_collection.create_index(
+            await genes_collection.create_index(
                 [("format", 1)], name="format_index", background=True
             )
             logger.info("Índices creados para búsquedas parciales.")
@@ -60,7 +59,9 @@ class FileProcessorService:
         file_path = await self.file_storage.save_uploaded_file(file)
 
         # Crear una colección para el archivo subido
-        collection_name = f"genes_{int(datetime.now().timestamp())}"
+        collection_name = (
+            f"genes_{file.filename.split('.')[0]}_{int(datetime.now().timestamp())}"
+        )
         genes_collection = self.database[collection_name]
 
         # Verificar y crear la colección de archivos subidos si no existe
@@ -90,12 +91,12 @@ class FileProcessorService:
 
             # Calculate processing time and speed
             total_time = (datetime.now() - start_time).total_seconds() / 60
+            await self._create_indexes(genes_collection)  # Pasar la colección correcta
 
             logger.info(f"Processing completed successfully in {total_time:.2f} min")
             file_record = {"file_path": file_path, "total_genes": total_genes}
             os.remove(file_path)  # Remover el archivo temporal
 
-            await self._create_indexes()  # Indices
             return {"status": "success", "data": file_record}
 
         except Exception as e:
