@@ -18,7 +18,7 @@ from app.services.auth_service import (
 router = APIRouter()
 
 
-@router.post("/login")
+@router.post("/login2")
 async def login(request: LoginRequest):
     """
     Inicio de sesión de usuario
@@ -35,6 +35,27 @@ async def login(request: LoginRequest):
             headers={"WWW-Authenticate": "Bearer"},
         )
 
+    access_token = create_access_token(data={"sub": user.email})
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+    }
+
+
+@router.post("/login")
+async def login(form_data: OAuth2PasswordRequestForm = Depends()):
+    """
+    Inicio de sesión de usuario
+    - Autentica credenciales
+    - Genera token de acceso
+    """
+    user = await authenticate_user(form_data.username, form_data.password)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Credenciales incorrectas",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     access_token = create_access_token(data={"sub": user.email})
     return {
         "access_token": access_token,

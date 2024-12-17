@@ -35,7 +35,7 @@ class GeneSearchService:
         return await cursor.to_list(length=limit)
 
     async def search(
-        self, criteria, page=1, per_page=10, timeout=30, collection_name: str = "genes"
+        self, criteria, page=1, per_page=25, timeout=30, collection_name: str = "genes"
     ):
         search_term = re.escape(criteria.search.strip())
         query = {
@@ -87,3 +87,28 @@ class GeneSearchService:
                 status_code=408,
                 detail="La búsqueda tomó demasiado tiempo.",
             )
+
+    async def parallel_search(self, query, skip, limit, collection_name: str):
+        pipeline = [
+            {"$match": query},
+            {"$sort": {"_id": 1}},
+            {"$skip": skip},
+            {"$limit": limit},
+            {
+                "$project": {
+                    "_id": 0,
+                    "chromosome": 1,
+                    "position": 1,
+                    "id": 1,
+                    "reference": 1,
+                    "alternate": 1,
+                    "quality": 1,
+                    "filter_status": 1,
+                    "info": 1,
+                    "format": 1,
+                    "outputs": 1,
+                }
+            },
+        ]
+        cursor = self.db[collection_name].aggregate(pipeline)
+        return await cursor.to_list(length=limit)

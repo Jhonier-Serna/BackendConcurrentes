@@ -10,7 +10,6 @@ from app.services.auth_service import (
 )
 from app.models.user import UserResponse
 from app.services.gene_search_service import GeneSearchService
-from app.services.auth_service import get_current_user
 
 router = APIRouter()
 
@@ -23,9 +22,9 @@ async def search_genes(
     search: Optional[str] = Query(None, description="Filtro"),
     page: int = Query(1, ge=1, description="Número de página"),
     per_page: int = Query(25, ge=1, le=200, description="Resultados por página"),
-    collection_name: str = Query(
-        ..., description="Nombre de la colección donde buscar"
-    ),
+    collection_name: Optional[str] = Query(
+        None, description="Nombre de la colección donde buscar"
+    ),  # Parámetro opcional # Nuevo parámetro
 ):
     """
     Búsqueda avanzada de genes con múltiples criterios
@@ -45,13 +44,15 @@ async def search_genes(
         search=search,
     )
 
-    try:
+    if collection_name is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Se debe proporcionar el nombre de la colección.",
+        )
+    else:
         results = await search_service.search(
             criteria=search_criteria,
-            page=page,
             per_page=per_page,
             collection_name=collection_name,
         )
-        return results
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error en la búsqueda: {str(e)}")
+    return results
